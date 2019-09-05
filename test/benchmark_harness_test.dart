@@ -42,7 +42,7 @@ class MockAsyncBenchmark extends AsyncBenchmarkBase {
   MockAsyncBenchmark() : super('mock benchmark');
 
   @override
-  void run() async {
+  Future<void> run() async {
     await Future.delayed(Duration());
     runCount++;
   }
