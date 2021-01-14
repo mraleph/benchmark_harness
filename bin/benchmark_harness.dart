@@ -10,7 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:benchmark_harness/benchmark_harness.dart';
+import 'package:benchmark_harness/benchmark_runner.dart';
 import 'package:dcli/dcli.dart';
 import 'package:path/path.dart' as p;
 
