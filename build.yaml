@@ -1,0 +1,7 @@
+builders:
+  benchmark:
+    import: "package:benchmark_harness/builder.dart"
+    builder_factories: ["benchmarkLibraryBuilder"]
+    build_extensions: {".dart": [".benchmark.dart"]}
+    auto_apply: dependents
+    build_to: source
