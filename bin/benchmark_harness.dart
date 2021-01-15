@@ -34,7 +34,7 @@ void main() async {
   print('-' * 80);
   print('');
   resultsByFile.forEach((file, results) {
-    print('Results for ${file}');
+    print('Results for $file');
     final scores = {
       for (var r in results.values)
         r.name: r.elapsedMilliseconds / r.numIterations
@@ -43,14 +43,14 @@ void main() async {
         results.keys.reduce((a, b) => scores[a] < scores[b] ? a : b);
 
     for (var result in results.values) {
-      String suffix = '';
+      var suffix = '';
       if (result.name == fastest) {
         suffix = red('(fastest)');
       } else {
-        double factor = scores[result.name] / scores[fastest];
+        final factor = scores[result.name] / scores[fastest];
         suffix = red('(${factor.toStringAsFixed(1)} times as slow)');
       }
-      print('${result.name}: ${scores[result.name]} ms/iteration ${suffix}');
+      print('${result.name}: ${scores[result.name]} ms/iteration $suffix');
     }
   });
 }
@@ -64,7 +64,7 @@ Future<Map<String, BenchmarkResult>> runBenchmarksIn(String file) async {
       .firstMatch(File(file).readAsStringSync())
       .namedGroup('list')
       .split(',');
-  print(red('Found ${benchmarks.length} benchmarks in ${file}'
+  print(red('Found ${benchmarks.length} benchmarks in $file'
       '($benchmarks)'));
   for (var name in benchmarks) {
     results[name] = await runBenchmark(file, name);
@@ -75,7 +75,7 @@ Future<Map<String, BenchmarkResult>> runBenchmarksIn(String file) async {
 /// Runs benchmark with the given [name] defined in the given [file] and
 /// collects its result.
 Future<BenchmarkResult> runBenchmark(String file, String name) async {
-  print(red('  measuring ${name}'));
+  print(red('  measuring $name'));
   final process = await Process.start('flutter', [
     'run',
     '--release',
