@@ -11,16 +11,32 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:benchmark_harness/benchmark_runner.dart';
+import 'package:benchmark_harness/src/simpleperf/ndk.dart';
 import 'package:dcli/dcli.dart';
 import 'package:path/path.dart' as p;
+
+final ndk = Ndk.fromEnvironment();
 
 void main() async {
   // Ansi support detection does not work when running from `pub run`
   // force it to be always on for now.
   Ansi.isSupported = true;
 
+  // Check that the app is marked as profilable.
+  if (!File('android/app/src/main/AndroidManifest.xml')
+      .readAsStringSync()
+      .contains(RegExp(r'<profileable\s*android:shell="true"\s*/>'))) {
+    print(red('''
+Can't locate <profileable android:shell="true" /> in AndroidManifest.xml
+'''));
+    exit(1);
+  }
+
+  // Prepare device for profiling (assumes Android).
+  print(blue('Preparing device for profiling'));
+  await ndk.apiProfilerPrepare();
+
   // Generate benchmark wrapper scripts.
-  print(red('Generating benchmark wrappers'));
   'flutter pub run build_runner build'.start(progress: Progress.devNull());
 
   // Run all generated benchmarks.
@@ -45,7 +61,7 @@ void main() async {
     for (var result in results.values) {
       var suffix = '';
       if (result.name == fastest) {
-        suffix = red('(fastest)');
+        suffix = green('(fastest)');
       } else {
         final factor = scores[result.name] / scores[fastest];
         suffix = red('(${factor.toStringAsFixed(1)} times as slow)');
@@ -64,18 +80,23 @@ Future<Map<String, BenchmarkResult>> runBenchmarksIn(String file) async {
       .firstMatch(File(file).readAsStringSync())
       .namedGroup('list')
       .split(',');
-  print(red('Found ${benchmarks.length} benchmarks in $file'
+  print(blue('Found ${benchmarks.length} benchmarks in $file'
       '($benchmarks)'));
   for (var name in benchmarks) {
     results[name] = await runBenchmark(file, name);
   }
+  print(blue('  fetching profiles'));
+  await ndk.apiProfilerCollect(
+    app: readApplicationId(),
+    outDir: 'build/profiles',
+  );
   return results;
 }
 
 /// Runs benchmark with the given [name] defined in the given [file] and
 /// collects its result.
 Future<BenchmarkResult> runBenchmark(String file, String name) async {
-  print(red('  measuring $name'));
+  print(blue('  measuring $name'));
   final process = await Process.start('flutter', [
     'run',
     '--release',
@@ -117,10 +138,10 @@ Future<BenchmarkResult> runBenchmark(String file, String name) async {
         appId = event['params']['appId'] as String;
         break;
       case 'benchmark.running':
-        print(red('    benchmark is running'));
+        print(blue('    benchmark is running'));
         break;
       case 'benchmark.done':
-        print(red('      done'));
+        print(blue('      done'));
         process.stdin.writeln(jsonEncode([
           {
             'id': 0,
@@ -139,6 +160,15 @@ Future<BenchmarkResult> runBenchmark(String file, String name) async {
   return result;
 }
 
+String readApplicationId() {
+  return applicatioIdPattern
+      .firstMatch(File('android/app/build.gradle').readAsStringSync())
+      .namedGroup('appId');
+}
+
+final applicatioIdPattern = RegExp(
+    r'''^\s*applicationId\s+['"](?<appId>.*)['"]\s*$''',
+    multiLine: true);
 final benchmarkListPattern =
     RegExp(r'^// BENCHMARKS: (?<list>.*)$', multiLine: true);
 final benchmarkHarnessMessagePattern =

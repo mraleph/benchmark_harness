@@ -1,5 +1,8 @@
 /// Library for running benchmarks through benchmark_harness CLI.
 import 'dart:convert' show jsonEncode;
+import 'dart:io' show Platform;
+
+import 'package:benchmark_harness/src/simpleperf/profiling_session.dart';
 
 class BenchmarkResult {
   final String name;
@@ -31,7 +34,7 @@ class BenchmarkResult {
 /// least [thresholdMilliseconds] and returns [BenchmarkResult] describing
 /// that run.
 BenchmarkResult measure(void Function(int) loop,
-    {required String name, int thresholdMilliseconds = 5000}) {
+    {required String name, int thresholdMilliseconds = 2000}) {
   var n = 2;
   final sw = Stopwatch();
   do {
@@ -49,10 +52,18 @@ BenchmarkResult measure(void Function(int) loop,
   );
 }
 
-void runBenchmarks(Map<String, void Function(int)> benchmarks) {
+Future<void> runBenchmarks(Map<String, void Function(int)> benchmarks) async {
   _event('benchmark.running');
+  final profiler = Platform.isAndroid ? ProfilingSession() : null;
   for (var entry in benchmarks.entries) {
-    _event('benchmark.result', measure(entry.value, name: entry.key));
+    final result = measure(entry.value, name: entry.key);
+    _event('benchmark.result', result);
+
+    // Run benchmark for the same amount of iterations and profile it.
+    await profiler?.start(
+        options: RecordingOptions(outputFilename: 'perf-${entry.key}.data'));
+    entry.value(result.numIterations);
+    await profiler?.stop();
   }
   _event('benchmark.done');
 }

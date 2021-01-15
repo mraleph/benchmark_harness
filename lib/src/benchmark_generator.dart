@@ -47,8 +47,8 @@ $wrappers
 
 $defines
 
-void main() {
-  benchmark_runner.runBenchmarks(const {
+void main() async {
+  await benchmark_runner.runBenchmarks(const {
     $benchmarks
   });
 }
