@@ -10,46 +10,109 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:benchmark_harness/benchmark_runner.dart';
-import 'package:benchmark_harness/src/simpleperf/ndk.dart';
+import 'package:args/args.dart';
+import 'package:args/command_runner.dart';
 import 'package:dcli/dcli.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:benchmark_harness/benchmark_runner.dart';
+import 'package:benchmark_harness/src/simpleperf/ndk.dart';
+
 final ndk = Ndk.fromEnvironment();
 
-void main() async {
+final runner = CommandRunner('benchmark_harness', 'CLI for running benchmarks')
+  ..addCommand(MeasureCommand())
+  ..addCommand(ReportCommand());
+
+void main(List<String> args) async {
   // Ansi support detection does not work when running from `pub run`
   // force it to be always on for now.
   Ansi.isSupported = true;
+  await runner.run(args);
+}
 
-  // Check that the app is marked as profilable.
-  if (!File('android/app/src/main/AndroidManifest.xml')
-      .readAsStringSync()
-      .contains(RegExp(r'<profileable\s*android:shell="true"\s*/>'))) {
-    print(red('''
-Can't locate <profileable android:shell="true" /> in AndroidManifest.xml
-'''));
-    exit(1);
+class Results {
+  final Map<String, Map<String, BenchmarkResult>> data;
+
+  Results() : data = {};
+
+  Results.fromJson(Map<String, dynamic> json)
+      : data = {
+          for (var fileEntry in json.entries)
+            fileEntry.key: {
+              for (var benchmarkEntry
+                  in (fileEntry.value as Map<String, dynamic>).entries)
+                benchmarkEntry.key: BenchmarkResult.fromJson(
+                    benchmarkEntry.value as Map<String, dynamic>),
+            }
+        };
+
+  Object toJson() => data;
+}
+
+class MeasureCommand extends Command {
+  // The [name] and [description] properties must be defined by every
+  // subclass.
+  @override
+  final name = 'measure';
+  @override
+  final description = 'Run benchmarks and report results';
+
+  @override
+  Future<void> run() async {
+    // Check that the app is marked as profilable.
+    if (!File('android/app/src/main/AndroidManifest.xml')
+        .readAsStringSync()
+        .contains(RegExp(r'<profileable\s*android:shell="true"\s*/>'))) {
+      print(red('''
+  Can't locate <profileable android:shell="true" /> in AndroidManifest.xml
+  '''));
+      exit(1);
+    }
+
+    // Prepare device for profiling (assumes Android).
+    print(blue('Preparing device for profiling'));
+    await ndk.apiProfilerPrepare();
+
+    // Generate benchmark wrapper scripts.
+    'flutter pub run build_runner build'.start(progress: Progress.devNull());
+
+    // Run all generated benchmarks.
+    final results = Results();
+    var id = 0;
+    for (var file in find('*.benchmark.dart').toList().map(p.relative)) {
+      results.data[file] = await runBenchmarksIn(id++, file);
+    }
+    await File('build/benchmarks/results.json')
+        .writeAsString(jsonEncode(results));
+
+    // Report results.
+    print('');
+    print('-' * 80);
+    print('');
+    reportResults(results);
   }
+}
 
-  // Prepare device for profiling (assumes Android).
-  print(blue('Preparing device for profiling'));
-  await ndk.apiProfilerPrepare();
+class ReportCommand extends Command {
+  // The [name] and [description] properties must be defined by every
+  // subclass.
+  @override
+  final name = 'report';
+  @override
+  final description = 'Report results without running';
 
-  // Generate benchmark wrapper scripts.
-  'flutter pub run build_runner build'.start(progress: Progress.devNull());
-
-  // Run all generated benchmarks.
-  final resultsByFile = <String, Map<String, BenchmarkResult>>{};
-  for (var file in find('*.benchmark.dart').toList().map(p.relative)) {
-    resultsByFile[file] = await runBenchmarksIn(file);
+  @override
+  Future<void> run() async {
+    final results = Results.fromJson(
+        jsonDecode(await File('build/benchmarks/results.json').readAsString())
+            as Map<String, dynamic>);
+    reportResults(results);
   }
+}
 
-  // Report results.
-  print('');
-  print('-' * 80);
-  print('');
-  resultsByFile.forEach((file, results) {
+void reportResults(Results results) {
+  results.data.forEach((file, results) {
     print('Results for $file');
     final scores = {
       for (var r in results.values)
@@ -73,7 +136,8 @@ Can't locate <profileable android:shell="true" /> in AndroidManifest.xml
 
 /// Runs all benchmarks in `.benchmark.dart` [file] one by one and collects
 /// their results.
-Future<Map<String, BenchmarkResult>> runBenchmarksIn(String file) async {
+Future<Map<String, BenchmarkResult>> runBenchmarksIn(
+    int id, String file) async {
   final results = <String, BenchmarkResult>{};
 
   final benchmarks = benchmarkListPattern
@@ -82,27 +146,37 @@ Future<Map<String, BenchmarkResult>> runBenchmarksIn(String file) async {
       .split(',');
   print(blue('Found ${benchmarks.length} benchmarks in $file'
       '($benchmarks)'));
+  final outDir = 'build/benchmarks/artifacts$id';
+  await Directory(outDir).create(recursive: true);
   for (var name in benchmarks) {
-    results[name] = await runBenchmark(file, name);
+    results[name] = await runBenchmark(file, name, outDir);
   }
   print(blue('  fetching profiles'));
   await ndk.apiProfilerCollect(
     app: readApplicationId(),
-    outDir: 'build/profiles',
+    outDir: outDir,
   );
+  await File(
+          './build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libapp.so')
+      .copy(p.join(outDir, 'libapp.so'));
   return results;
 }
 
 /// Runs benchmark with the given [name] defined in the given [file] and
 /// collects its result.
-Future<BenchmarkResult> runBenchmark(String file, String name) async {
+Future<BenchmarkResult> runBenchmark(
+    String file, String name, String outDir) async {
+  final commentsFile = p.join(outDir, 'code-comments-$name');
+  print(blue('  build $name'));
+  // TODO --code-comments,--write-code-comments-as-synthetic-source-to=$commentsFile
+  'flutter build apk --release --extra-gen-snapshot-options=--dwarf-stack-traces,--no-strip --dart-define targetBenchmark=$name -t $file'
+      .run;
   print(blue('  measuring $name'));
   final process = await Process.start('flutter', [
     'run',
     '--release',
     '--machine',
-    '--dart-define',
-    'targetBenchmark=$name',
+    '--use-application-binary=build/app/outputs/flutter-apk/app-release.apk',
     '-t',
     file,
   ]);
