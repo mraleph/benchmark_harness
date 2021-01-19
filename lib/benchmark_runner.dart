@@ -59,11 +59,13 @@ Future<void> runBenchmarks(Map<String, void Function(int)> benchmarks) async {
     final result = measure(entry.value, name: entry.key);
     _event('benchmark.result', result);
 
-    // Run benchmark for the same amount of iterations and profile it.
-    await profiler?.start(
-        options: RecordingOptions(outputFilename: 'perf-${entry.key}.data'));
-    entry.value(result.numIterations);
-    await profiler?.stop();
+    if (profiler != null) {
+      // Run benchmark for the same amount of iterations and profile it.
+      await profiler.start(
+          options: RecordingOptions(outputFilename: 'perf-${entry.key}.data'));
+      entry.value(result.numIterations);
+      await profiler.stop();
+    }
   }
   _event('benchmark.done');
 }

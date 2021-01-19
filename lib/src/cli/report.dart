@@ -17,7 +17,7 @@ import 'package:native_stack_traces/src/elf.dart' as elf_lib;
 import 'package:path/path.dart' as p;
 
 import 'package:benchmark_harness/src/simpleperf/generated/report_lib.dart'
-    as report_lib;
+    as report_bindings;
 import 'package:benchmark_harness/src/simpleperf/flutter_symbols.dart';
 import 'package:benchmark_harness/src/simpleperf/ndk.dart';
 import 'package:benchmark_harness/src/cli/results.dart';
@@ -78,6 +78,9 @@ Future<void> reportResults(Results byFile, {bool verbose = false}) async {
   }
 }
 
+final reportLib = report_bindings.NativeLibrary(
+    ffi.DynamicLibrary.open(ndk.simpleperfReportLib));
+
 Future<void> _printProfile(String tempDir, String profileData, String appSo,
     {String? localEngine, bool verbose = false}) async {
   final libflutterSymbols = localEngine != null
@@ -95,22 +98,20 @@ Future<void> _printProfile(String tempDir, String profileData, String appSo,
       .create(p.absolute(p.join(libflutterSymbols, 'libflutter.so')));
   await Link(p.join(tempDir, 'libapp.so')).create(p.absolute(appSo));
 
-  final lib = report_lib.NativeLibrary(
-      ffi.DynamicLibrary.open(ndk.simpleperfReportLib));
-  final reportLib = lib.CreateReportLib();
-  lib.SetRecordFile(reportLib, Utf8.toUtf8(profileData).cast());
-  lib.SetSymfs(reportLib, Utf8.toUtf8(tempDir).cast());
+  final session = reportLib.CreateReportLib();
+  reportLib.SetRecordFile(session, Utf8.toUtf8(profileData).cast());
+  reportLib.SetSymfs(session, Utf8.toUtf8(tempDir).cast());
 
   final hitMap = <Symbol, ProfileData>{};
   var total = 0;
   for (;;) {
-    final sample = lib.GetNextSample(reportLib);
+    final sample = reportLib.GetNextSample(session);
     if (sample == ffi.nullptr) {
       break;
     }
     total += sample.ref.period;
 
-    final symbol = lib.GetSymbolOfCurrentSample(reportLib);
+    final symbol = reportLib.GetSymbolOfCurrentSample(session);
     final dsoName = Utf8.fromUtf8(symbol.ref.dso_name.cast());
 
     final symbolName = Utf8.fromUtf8(symbol.ref.symbol_name.cast());
@@ -171,7 +172,7 @@ Future<void> _printProfile(String tempDir, String profileData, String appSo,
     print('  ..(run with -v to disassemble all hot methods in libapp.so)..');
   }
 
-  lib.DestroyReportLib(reportLib);
+  reportLib.DestroyReportLib(session);
 }
 
 extension on elf_lib.Elf {
