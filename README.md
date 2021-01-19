@@ -1,5 +1,9 @@
 # Dart Benchmark Harness
 
+**This is a fork of `benchmark_harness` package which contains an experimental
+CLI for running microbenchmarks using `flutter` tooling. This is not an
+officially supported Dart project at the moment.**
+
 The Dart project benchmark harness is the recommended starting point when building a benchmark for Dart.
 
 ## Learning more
@@ -22,7 +26,7 @@ Carefully because there are a variety of factors which
 could cause error in the run time, for example, the load from
 other applications running on your machine could alter the result.
 
-Comparing the run time of different benchmarks is not recommended. 
+Comparing the run time of different benchmarks is not recommended.
 In other words, don't compare apples with oranges.
 
 ## Features

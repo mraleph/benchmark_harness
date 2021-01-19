@@ -133,6 +133,8 @@ class Ndk {
   String get _readelfBinary =>
       '$_ndkDir/toolchains/llvm/prebuilt/$_platform-x86_64/bin/x86_64-linux-android-readelf';
   String get _apiProfilerScript => '$_ndkDir/simpleperf/api_profiler.py';
+  String get simpleperfReportLib =>
+      '$_ndkDir/simpleperf/bin/linux/x86_64/libsimpleperf_report.so';
 }
 
 /// Information about a section extracted from ELF file.
