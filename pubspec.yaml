@@ -18,6 +18,8 @@ dependencies:
   # Depend on unreleased version of native_stack_traces.
   native_stack_traces:
     path: ../../dart/sdk/pkg/native_stack_traces
+  dart_internal:
+    path: ./dart_internal
 
 dev_dependencies:
   build_runner: ^1.1.0

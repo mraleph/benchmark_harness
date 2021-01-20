@@ -4,6 +4,8 @@ import 'dart:io' show Platform;
 
 import 'package:benchmark_harness/src/simpleperf/profiling_session.dart';
 
+export 'package:dart_internal/dart_internal.dart' show reachabilityFence;
+
 class BenchmarkResult {
   final String name;
   final int elapsedMilliseconds;
