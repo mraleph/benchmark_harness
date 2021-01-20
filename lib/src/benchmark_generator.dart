@@ -63,8 +63,14 @@ void main() async {
   String generateForAnnotatedElement(
       Element element, ConstantReader annotation, BuildStep buildStep) {
     return '''
+@pragma('vm:never-inline')
+@pragma('vm:no-interrupts')
 void ${loopFunctionNameFor(element.name)}(int numIterations) {
-  while (numIterations-- > 0) {
+  // Work-around a limitation in the AOT compiler which prevents
+  // us from unboxing numIterations even if we insert an explicit
+  // `null` check.
+  var n = numIterations - 0;
+  while (n-- > 0) {
     lib.${element.name}();
   }
 }

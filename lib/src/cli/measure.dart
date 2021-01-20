@@ -47,6 +47,7 @@ Error: Can't locate <profileable android:shell="true" /> in AndroidManifest.xml
     await ndk.apiProfilerPrepare();
 
     // Generate benchmark wrapper scripts.
+    print(blue('Generating benchmark wrappers'));
     'flutter pub run build_runner build'.start(progress: Progress.devNull());
 
     // Run all generated benchmarks.
