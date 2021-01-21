@@ -15,6 +15,7 @@ dependencies:
   dcli: ^0.50.0-nullsaftey.0
   ffi: ^0.1.3
   source_gen: ^0.9.10+1
+  stats: ^1.0.1
   # Depend on unreleased version of native_stack_traces.
   native_stack_traces:
     path: ../../dart/sdk/pkg/native_stack_traces

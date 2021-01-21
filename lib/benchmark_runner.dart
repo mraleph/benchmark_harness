@@ -3,32 +3,43 @@ import 'dart:convert' show jsonEncode;
 import 'dart:io' show Platform;
 
 import 'package:benchmark_harness/src/simpleperf/profiling_session.dart';
+import 'package:stats/stats.dart';
 
 export 'package:dart_internal/dart_internal.dart' show reachabilityFence;
 
 class BenchmarkResult {
   final String name;
-  final int elapsedMilliseconds;
+  final List<int> measurements;
   final int numIterations;
+
+  late Stats stats =
+      Stats.fromData([for (var v in measurements) v / numIterations]);
 
   BenchmarkResult({
     required this.name,
-    required this.elapsedMilliseconds,
+    required this.measurements,
     required this.numIterations,
   });
 
   BenchmarkResult.fromJson(Map<String, dynamic> result)
       : this(
           name: result['name'] as String,
-          elapsedMilliseconds: result['elapsed'] as int,
+          measurements: (result['measurements'] as List).cast<int>(),
           numIterations: result['iterations'] as int,
         );
 
   Map<String, dynamic> toJson() => {
         'name': name,
-        'elapsed': elapsedMilliseconds,
+        'measurements': measurements,
         'iterations': numIterations,
       };
+}
+
+int _measure(void Function(int) loop, int n) {
+  final sw = Stopwatch()..start();
+  loop(n);
+  sw.stop();
+  return sw.elapsedMilliseconds;
 }
 
 /// Runs the given measured [loop] function with an exponentially increasing
@@ -38,18 +49,15 @@ class BenchmarkResult {
 BenchmarkResult measure(void Function(int) loop,
     {required String name, int thresholdMilliseconds = 2000}) {
   var n = 2;
-  final sw = Stopwatch();
+  var elapsed = 0;
   do {
     n *= 2;
-    sw.reset();
-    sw.start();
-    loop(n);
-    sw.stop();
-  } while (sw.elapsedMilliseconds < thresholdMilliseconds);
+    elapsed = _measure(loop, n);
+  } while (elapsed < thresholdMilliseconds);
 
   return BenchmarkResult(
     name: name,
-    elapsedMilliseconds: sw.elapsedMilliseconds,
+    measurements: [elapsed],
     numIterations: n,
   );
 }
@@ -58,8 +66,17 @@ Future<void> runBenchmarks(Map<String, void Function(int)> benchmarks) async {
   _event('benchmark.running');
   final profiler = Platform.isAndroid ? ProfilingSession() : null;
   for (var entry in benchmarks.entries) {
+    final loop = entry.value;
     final result = measure(entry.value, name: entry.key);
-    _event('benchmark.result', result);
+    final results =
+        List.generate(10, (_) => _measure(loop, result.numIterations));
+    _event(
+        'benchmark.result',
+        BenchmarkResult(
+          name: entry.key,
+          measurements: results,
+          numIterations: result.numIterations,
+        ));
 
     if (profiler != null) {
       // Run benchmark for the same amount of iterations and profile it.

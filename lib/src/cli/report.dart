@@ -39,28 +39,42 @@ class ReportCommand extends Command {
   }
 }
 
+String formatMilliseconds(double v, double pm) {
+  var suffix = 'ms';
+  for (var s in ['ms', 'us', 'ns', 'ps']) {
+    suffix = s;
+    if (v >= 1.0 || s == 'ps') {
+      break;
+    }
+    v *= 1000;
+    pm *= 1000;
+  }
+  return '${v.toStringAsFixed(3)} (±${pm.toStringAsFixed(3)}) $suffix';
+}
+
 Future<void> reportResults(Results byFile, {bool verbose = false}) async {
   var id = 0;
   for (var entry in byFile.data.entries) {
     final file = entry.key;
     final results = entry.value;
     print('Results for $file');
-    final scores = {
-      for (var r in results.values)
-        r.name: r.elapsedMilliseconds / r.numIterations
-    };
-    final fastest =
-        results.keys.reduce((a, b) => scores[a]! < scores[b]! ? a : b);
+    final scores = {for (var r in results.values) r.name: r.stats};
+    final fastest = results.keys
+        .reduce((a, b) => scores[a]!.average < scores[b]!.average ? a : b);
 
     for (var result in results.values) {
       var suffix = '';
       if (result.name == fastest) {
         suffix = green('(fastest)');
       } else {
-        final factor = scores[result.name]! / scores[fastest]!;
+        final factor = scores[result.name]!.average / scores[fastest]!.average;
         suffix = red('(${factor.toStringAsFixed(1)} times as slow)');
       }
-      print('${result.name}: ${scores[result.name]} ms/iteration $suffix');
+      final stats = scores[result.name]!;
+      final avg = stats.average.toDouble();
+      final stdDev = stats.standardDeviation.toDouble();
+      print(
+          '${result.name}: ${formatMilliseconds(avg, stdDev)}/iteration $suffix');
     }
 
     for (var result in results.values) {

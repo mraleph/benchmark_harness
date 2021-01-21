@@ -40,7 +40,7 @@ if (_shouldMeasure\$$name)
 ''',
     ].join('\n');
     return '''
-import 'package:benchmark_harness/benchmark_runner.dart' as benchmark_runner;
+import 'package:benchmark_harness/benchmark_runner.dart' as \$b;
 
 import '${library.element.source.uri}' as lib;
 
@@ -48,23 +48,8 @@ $wrappers
 
 $defines
 
-@pragma('vm:never-inline')
-void _consume\$int(int v) {
-  benchmark_runner.reachabilityFence(v);
-}
-
-@pragma('vm:never-inline')
-void _consume\$double(double v) {
-  benchmark_runner.reachabilityFence(v);
-}
-
-@pragma('vm:never-inline')
-void _consume\$Object(Object v) {
-  benchmark_runner.reachabilityFence(v);
-}
-
 void main() async {
-  await benchmark_runner.runBenchmarks(const {
+  await \$b.runBenchmarks(const {
     $benchmarks
   });
 }
@@ -80,18 +65,6 @@ void main() async {
       Element element, ConstantReader annotation, BuildStep buildStep) {
     final returnType = (element as FunctionElement).returnType;
     final needsBlackhole = !returnType.isVoid;
-    final isIntReturn = returnType.isDartCoreInt;
-    final isDoubleReturn = returnType.isDartCoreDouble;
-    final blackholeType = isIntReturn
-        ? 'int'
-        : isDoubleReturn
-            ? 'double'
-            : 'Object';
-    final blackholeInitializer = (isIntReturn || isDoubleReturn) ? '= 0' : '';
-    final blackholeDeclaration =
-        needsBlackhole ? '$blackholeType bh $blackholeInitializer;' : '';
-    final blackholeConsume =
-        needsBlackhole ? '_consume\$$blackholeType(bh);' : '';
     return '''
 @pragma('vm:never-inline')
 @pragma('vm:no-interrupts')
@@ -100,11 +73,9 @@ void ${loopFunctionNameFor(element.name)}(int numIterations) {
   // us from unboxing numIterations even if we insert an explicit
   // `null` check.
   var n = numIterations - 0;
-  $blackholeDeclaration
   while (n-- > 0) {
-    ${needsBlackhole ? 'bh = ' : ''} lib.${element.name}();
+    ${needsBlackhole ? '\$b.reachabilityFence' : ''} (lib.${element.name}());
   }
-  $blackholeConsume
 }
 ''';
   }
