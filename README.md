@@ -5,6 +5,16 @@
 The Dart project benchmark harness is the recommended starting point when
 building a benchmark for Dart.
 
+**This is a fork of `benchmark_harness` package which contains an experimental
+CLI for running microbenchmarks using `flutter` tooling. This is not an
+officially supported Dart project at the moment.**
+
+The Dart project benchmark harness is the recommended starting point when building a benchmark for Dart.
+
+## Learning more
+
+You can read more about [Benchmarking the Dart VM](https://www.dartlang.org/articles/server/benchmarking/).
+
 ## Interpreting Results
 
 By default, the reported runtime in `BenchmarkBase` is not for a single call to
@@ -31,7 +41,7 @@ Carefully because there are a variety of factors which
 could cause error in the run time, for example, the load from
 other applications running on your machine could alter the result.
 
-Comparing the run time of different benchmarks is not recommended. 
+Comparing the run time of different benchmarks is not recommended.
 In other words, don't compare apples with oranges.
 
 ## Features

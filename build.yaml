@@ -1,0 +1,25 @@
+targets:
+  $default:
+    builders:
+      source_gen|combining_builder:
+        options:
+          ignore_for_file:
+          - lines_longer_than_80_chars
+          - text_direction_code_point_in_literal
+          - inference_failure_on_function_invocation
+          - inference_failure_on_collection_literal
+          - unnecessary_this
+          - non_constant_identifier_names
+          - constant_identifier_names
+
+      benchmark_harness|benchmark:
+        generate_for:
+        - example/*
+
+builders:
+  benchmark:
+    import: "package:benchmark_harness/builder.dart"
+    builder_factories: ["benchmarkLibraryBuilder"]
+    build_extensions: {".dart": [".benchmark.dart"]}
+    auto_apply: dependents
+    build_to: source

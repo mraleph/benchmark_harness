@@ -44,15 +44,15 @@ class BenchmarkBase {
   /// Measures the score for this benchmark by executing it repeatedly until
   /// time minimum has been reached.
   static double measureFor(void Function() f, int minimumMillis) =>
-      measureForImpl(f, minimumMillis).score;
+      measureForImpl(loop(f), minimumMillis).score;
 
   /// Measures the score for the benchmark and returns it.
   double measure() {
     setup();
     // Warmup for at least 100ms. Discard result.
-    measureForImpl(warmup, 100);
+    measureForImpl(loop(warmup), 100);
     // Run the benchmark for at least 2000ms.
-    var result = measureForImpl(exercise, minimumMeasureDurationMillis);
+    var result = measureForImpl(loop(exercise), minimumMeasureDurationMillis);
     teardown();
     return result.score;
   }
@@ -62,9 +62,17 @@ class BenchmarkBase {
   }
 }
 
+void Function(int) loop(void Function() f) {
+  return (n) {
+    for (var i = 0; i < n; i++) {
+      f();
+    }
+  };
+}
+
 /// Measures the score for this benchmark by executing it enough times
 /// to reach [minimumMillis].
-Measurement measureForImpl(void Function() f, int minimumMillis) {
+Measurement measureForImpl(void Function(int) f, int minimumMillis) {
   final minimumMicros = minimumMillis * 1000;
   // If running a long measurement permit some amount of measurement jitter
   // to avoid discarding results that are almost good, but not quite there.
@@ -75,10 +83,9 @@ Measurement measureForImpl(void Function() f, int minimumMillis) {
   final watch = Stopwatch()..start();
   while (true) {
     watch.reset();
-    for (var i = 0; i < iter; i++) {
-      f();
-    }
+    f(iter);
     final elapsed = watch.elapsedMicroseconds;
+    print('$iter -> $elapsed');
     final measurement = Measurement(elapsed, iter, totalIterations);
     if (measurement.elapsedMicros >= (minimumMicros - allowedJitter)) {
       return measurement;
