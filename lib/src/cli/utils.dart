@@ -38,6 +38,14 @@ Future<void> withTemporaryDir(Future<void> Function(String path) body,
   }
 }
 
+void runCommand(String command) {
+  final [cmd, ...args] = command.split(' ');
+  final result = Process.runSync(cmd, args);
+  if (result.exitCode != 0) {
+    throw ProcessException(command, args, 'Failed to run', result.exitCode);
+  }
+}
+
 final _applicationIdPattern = RegExp(
     r'''^\s*applicationId\s+['"](?<appId>.*)['"]\s*$''',
     multiLine: true);

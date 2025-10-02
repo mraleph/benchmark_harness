@@ -9,18 +9,17 @@ import 'dart:io';
 
 import 'package:ansicolor/ansicolor.dart';
 import 'package:args/command_runner.dart';
-import 'package:benchmark_harness/src/cli/utils.dart';
-import 'package:dcli/dcli.dart';
 import 'package:ffi/ffi.dart';
 import 'package:native_stack_traces/native_stack_traces.dart';
+// ignore: implementation_imports
 import 'package:native_stack_traces/src/elf.dart' as elf_lib;
 import 'package:path/path.dart' as p;
 
-import 'package:benchmark_harness/src/simpleperf/generated/report_lib.dart'
-    as report_bindings;
-import 'package:benchmark_harness/src/simpleperf/flutter_symbols.dart';
-import 'package:benchmark_harness/src/simpleperf/ndk.dart';
-import 'package:benchmark_harness/src/cli/results.dart';
+import '../simpleperf/flutter_symbols.dart';
+import '../simpleperf/generated/report_lib.dart' as report_bindings;
+import '../simpleperf/ndk.dart';
+import 'results.dart';
+import 'utils.dart';
 
 class ReportCommand extends Command {
   // The [name] and [description] properties must be defined by every
@@ -35,7 +34,7 @@ class ReportCommand extends Command {
     final results = Results.fromJson(
         jsonDecode(await File('build/benchmarks/results.json').readAsString())
             as Map<String, dynamic>);
-    await reportResults(results, verbose: globalResults['verbose'] as bool);
+    await reportResults(results, verbose: globalResults!['verbose'] as bool);
   }
 }
 
