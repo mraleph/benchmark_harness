@@ -85,7 +85,31 @@ Measurement measureForImpl(void Function(int) f, int minimumMillis) {
     watch.reset();
     f(iter);
     final elapsed = watch.elapsedMicroseconds;
-    print('$iter -> $elapsed');
+    final measurement = Measurement(elapsed, iter, totalIterations);
+    if (measurement.elapsedMicros >= (minimumMicros - allowedJitter)) {
+      return measurement;
+    }
+
+    iter = measurement.estimateIterationsNeededToReach(
+        minimumMicros: minimumMicros);
+    totalIterations += iter;
+  }
+}
+
+Future<Measurement> asyncMeasureForImpl(
+    Future<void> Function(int) f, int minimumMillis) async {
+  final minimumMicros = minimumMillis * 1000;
+  // If running a long measurement permit some amount of measurement jitter
+  // to avoid discarding results that are almost good, but not quite there.
+  final allowedJitter =
+      minimumMillis < 1000 ? 0 : (minimumMicros * 0.1).floor();
+  var iter = 2;
+  var totalIterations = iter;
+  final watch = Stopwatch()..start();
+  while (true) {
+    watch.reset();
+    await f(iter);
+    final elapsed = watch.elapsedMicroseconds;
     final measurement = Measurement(elapsed, iter, totalIterations);
     if (measurement.elapsedMicros >= (minimumMicros - allowedJitter)) {
       return measurement;

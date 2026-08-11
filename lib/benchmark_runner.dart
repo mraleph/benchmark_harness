@@ -1,57 +1,33 @@
+// Copyright (c) 2021, the Dart project authors. Please see the AUTHORS file
+// for details. All rights reserved. Use of this source code is governed by a
+// BSD-style license that can be found in the LICENSE file.
+
 /// Library for running benchmarks through benchmark_harness CLI.
-import 'dart:convert' show jsonEncode;
-import 'dart:io' show Platform;
+library;
 
-import 'package:benchmark_harness/src/simpleperf/profiling_session.dart';
-import 'package:stats/stats.dart';
+import 'dart:async';
+import 'dart:convert' as convert;
+import 'dart:io' as io;
 
-import 'src/cli/ascii_table.dart';
-import 'src/benchmark_base.dart' show Measurement, measureForImpl;
+import 'src/benchmark_base.dart' show asyncMeasureForImpl, measureForImpl;
+//import 'package:benchmark_harness/src/simpleperf/profiling_session.dart';
+
+import 'src/benchmark_listener.dart';
 
 export 'package:dart_internal/dart_internal.dart' show reachabilityFence;
-
-import 'dart:ffi' as ffi;
-
-class Measurements {
-  final List<int> values;
-  final int numIterations;
-
-  late Stats stats = Stats.fromData([for (var v in values) v / numIterations]);
-
-  Measurements({
-    required this.values,
-    required this.numIterations,
-  });
-
-  Measurements.fromJson(Map<String, dynamic> result)
-      : this(
-          values: (result['values'] as List).cast<int>(),
-          numIterations: result['iterations'] as int,
-        );
-
-  Map<String, dynamic> toJson() => {
-        'values': values,
-        'iterations': numIterations,
-      };
-}
-
-class BenchmarkResult {
-  final String name;
-  final Map<String, Object?> parameters;
-  final Measurements measurements;
-
-  BenchmarkResult({
-    required this.name,
-    required this.parameters,
-    required this.measurements,
-  });
-}
 
 int _measure(void Function(int) loop, int n) {
   final sw = Stopwatch()..start();
   loop(n);
   sw.stop();
-  return sw.elapsedMilliseconds;
+  return sw.elapsedMicroseconds * 1000;
+}
+
+Future<int> _asyncMeasure(Future<void> Function(int) loop, int n) async {
+  final sw = Stopwatch()..start();
+  await loop(n);
+  sw.stop();
+  return sw.elapsedMicroseconds * 1000;
 }
 
 /*
@@ -75,8 +51,11 @@ Measurements measure(void Function(int) loop, {int thresholdMicros = 2000}) {
 
 class Benchmark {
   final String name;
-  final List<({Map<String, Object?> parameters, void Function(int) body})>
-      variants;
+  final List<
+      ({
+        Map<String, Object?> parameters,
+        FutureOr<void> Function(int) body
+      })> variants;
 
   const Benchmark({
     required this.name,
@@ -84,30 +63,110 @@ class Benchmark {
   });
 }
 
-abstract class BenchmarkListener {
-  void start();
-  void startSuite(String suiteName);
-  void result(BenchmarkResult result);
-  void endSuite();
-  void stop();
+class HarnessConfig {
+  final String? controlSocket;
+  final Set<String> benchmarksToRun;
+  final Map<String, int> iterations;
+
+  HarnessConfig._({
+    required this.benchmarksToRun,
+    required this.iterations,
+    required this.controlSocket,
+  });
+
+  factory HarnessConfig() {
+    final config = convert.jsonDecode(
+            io.Platform.environment['BENCHMARK_HARNESS_CONFIG'] ?? '{}')
+        as Map<String, dynamic>;
+    final toRun = <String>{};
+    final iterations = <String, int>{};
+    if (config case {'run': final Map<String, dynamic> m}) {
+      iterations.addAll(m.cast<String, int>());
+      toRun.addAll(m.keys);
+    }
+    return HarnessConfig._(
+      benchmarksToRun: toRun,
+      iterations: iterations,
+      controlSocket: config['json'] as String?,
+    );
+  }
+
+  static String benchmarkKey(String suite, String benchmark, int id) =>
+      '$suite.$benchmark.$id';
+
+  int? iterationsFor(String suite, String benchmark, int id) =>
+      iterations[benchmarkKey(suite, benchmark, id)];
+
+  Map<String, List<Benchmark>> filter(Map<String, List<Benchmark>> suites) {
+    if (benchmarksToRun.isEmpty) {
+      return suites;
+    }
+
+    final result = <String, List<Benchmark>>{};
+    for (final MapEntry(key: suite, value: benchmarks) in suites.entries) {
+      for (var benchmark in benchmarks) {
+        final filtered = Benchmark(name: benchmark.name, variants: [
+          for (var (id, variant) in benchmark.variants.indexed)
+            if (benchmarksToRun
+                .contains(benchmarkKey(suite, benchmark.name, id)))
+              variant,
+        ]);
+
+        if (filtered.variants.isNotEmpty) {
+          result.putIfAbsent(suite, () => <Benchmark>[]).add(filtered);
+        }
+      }
+    }
+
+    return result;
+  }
+
+  Future<BenchmarkListener> createListener() async {
+    if (controlSocket case final path?) {
+      final sock = await io.Socket.connect(
+          io.InternetAddress(path, type: io.InternetAddressType.unix), 0);
+      unawaited(sock.drain());
+      return JsonReporter(sock);
+    }
+    return CliReportingListener();
+  }
 }
 
 Future<void> runBenchmarks(Map<String, List<Benchmark>> benchmarks,
     {BenchmarkListener? listener}) async {
-  listener ??= _CliReportingListener();
+  final harnessConfig = HarnessConfig();
 
-  listener.start();
-  //_event('benchmark.running');
-//  final profiler = Platform.isAndroid ? ProfilingSession() : null;
+  benchmarks = harnessConfig.filter(benchmarks);
+
+  listener ??= await harnessConfig.createListener();
+
+  await listener.start();
   for (final MapEntry(key: suiteName, value: suiteBenchmarks)
       in benchmarks.entries) {
-    listener.startSuite(suiteName);
+    await listener.startSuite(suiteName);
     for (var benchmark in suiteBenchmarks) {
-      for (var (:parameters, :body) in benchmark.variants) {
-        final numIterations = measureForImpl(body, 1000).iterations;
-        final results = List.generate(1, (_) => _measure(body, numIterations));
-        listener.result(
+      for (var (id, (:parameters, :body)) in benchmark.variants.indexed) {
+        final int numIterations;
+        final List<int> results;
+        const N = 1;
+
+        if (body is Future<void> Function(int)) {
+          numIterations =
+              harnessConfig.iterationsFor(suiteName, benchmark.name, id) ??
+                  (await asyncMeasureForImpl(body, 1000)).iterations;
+          results = List.filled(N, 0);
+          for (var i = 0; i < N; i++) {
+            results[i] = await _asyncMeasure(body, numIterations);
+          }
+        } else {
+          numIterations =
+              harnessConfig.iterationsFor(suiteName, benchmark.name, id) ??
+                  measureForImpl(body, 1000).iterations;
+          results = List.generate(N, (_) => _measure(body, numIterations));
+        }
+        await listener.result(
           BenchmarkResult(
+            key: HarnessConfig.benchmarkKey(suiteName, benchmark.name, id),
             name: benchmark.name,
             parameters: parameters,
             measurements: Measurements(
@@ -129,69 +188,7 @@ Future<void> runBenchmarks(Map<String, List<Benchmark>> benchmarks,
 */
       }
     }
-    listener.endSuite();
+    await listener.endSuite();
   }
-  listener.stop();
+  await listener.stop();
 }
-
-class _CliReportingListener extends BenchmarkListener {
-  @override
-  void endSuite() {
-    print('Results for suite $currentSuite');
-
-    final parameterNames =
-        suiteResults.first.parameters.keys.toList(growable: false);
-
-    final table = AsciiTable(header: [
-      Text('Benchmark'),
-      for (var name in parameterNames) Text.right(name),
-      Text('ns/op'),
-    ]);
-
-    for (var result in suiteResults) {
-      table.addRow([
-        Text(result.name),
-        for (var name in parameterNames) Text('${result.parameters[name]}'),
-        Text(result.measurements.stats.average.toString()),
-      ]);
-    }
-
-    table.render();
-
-    currentSuite = null;
-    suiteResults.clear();
-  }
-
-  String? currentSuite;
-  final suiteResults = <BenchmarkResult>[];
-
-  @override
-  void result(BenchmarkResult result) {
-    suiteResults.add(result);
-  }
-
-  @override
-  void start() {
-    print('starting benchmarks');
-  }
-
-  @override
-  void startSuite(String suiteName) {
-    print('starting suite $suiteName');
-    currentSuite = suiteName;
-  }
-
-  @override
-  void stop() {
-    print('done with all benchmarks');
-  }
-}
-
-/*
-void _event(String event, [dynamic params]) {
-  final encoded = jsonEncode({
-    'event': event,
-    if (params != null) 'params': params,
-  });
-  print('benchmark_harness[$encoded]');
-}*/
